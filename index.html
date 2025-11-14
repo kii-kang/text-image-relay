@@ -5,12 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*</title>
 <style>
+  :root { color-scheme: dark; }
   body {
     margin: 0;
     background: #000;
-    background-size: cover;
-    background-position: center center;
-    background-repeat: no-repeat;
     color: #fff;
     font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     height: 100vh;
@@ -19,41 +17,56 @@
     justify-content: center;
     overflow: hidden;
     user-select: none;
+    position: relative;
   }
+  .bg {
+    position: fixed;
+    inset: 0;
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    opacity: 0;
+    transition: opacity 300ms ease;
+    pointer-events: none;
+  }
+  #bgA { z-index: 0; }
+  #bgB { z-index: 0; }
 
   #textWrapper {
-    transform-origin: center center;
+    position: relative;
+    z-index: 1;
     max-width: 100vw;
-    max-height: 100vh;
+    max-height: 80vh;
     display: flex;
     align-items: center;
     justify-content: center;
+    text-align: center;
   }
-
   #textInput {
     outline: none;
     border: none;
     background: #000;
     color: #fff;
-    white-space: nowrap;
-    line-height: 1;
+    line-height: 1.15;
     font-weight: 400;
     min-width: 1ch;
     font-family: "Times New Roman", Times, serif;
+    font-size: 80px;
+    word-break: break-word;
+    white-space: pre-wrap;
+    max-width: 90vw;
+    max-height: 80vh;
   }
 
   #controlsBarOuter {
     position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 100%;
+    bottom: 0; left: 0; width: 100%;
     display: flex;
     justify-content: center;
     pointer-events: none;
+    z-index: 2;
   }
-
   #controlsBar {
-    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     font-size: 14px;
     color: #fff;
     background: transparent;
@@ -64,11 +77,7 @@
     transition: opacity 0.15s linear;
     pointer-events: auto;
   }
-
-  #controlsBarOuter:hover #controlsBar,
-  #controlsBar:hover {
-    opacity: 1;
-  }
+  #controlsBarOuter:hover #controlsBar, #controlsBar:hover { opacity: 1; }
 
   .ctrlBtn {
     cursor: pointer;
@@ -81,18 +90,9 @@
     line-height: 1;
     font-weight: 400;
   }
+  .ctrlBtn:active { opacity: 0.5; }
 
-  .ctrlBtn:active {
-    opacity: 0.5;
-  }
-
-  #hint {
-    font-size: 12px;
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  #slideHint {
+  #hint, #slideHint {
     font-size: 12px;
     opacity: 0.5;
     cursor: default;
@@ -100,6 +100,9 @@
 </style>
 </head>
 <body>
+
+<div id="bgA" class="bg"></div>
+<div id="bgB" class="bg"></div>
 
 <div id="textWrapper">
   <div id="textInput" contenteditable="true" spellcheck="false"></div>
@@ -110,7 +113,7 @@
     <button class="ctrlBtn" id="fontInc">＋</button>
     <button class="ctrlBtn" id="fontDec">－</button>
     <button class="ctrlBtn" id="clearBtn">🗑</button>
-    <div id="hint">cmd+⌫ clear</div>
+    <div id="hint">Enter clears</div>
     <div id="slideHint">cmd+← / cmd+→ slide</div>
   </div>
 </div>
@@ -125,120 +128,103 @@
   const STORAGE_KEY_FONT = "simplepad_font_v1";
   const STORAGE_KEY_SLIDE = "simplepad_slide_v1";
 
-  const textWrapper = document.getElementById("textWrapper");
-  const textInput   = document.getElementById("textInput");
+  const bgA = document.getElementById("bgA");
+  const bgB = document.getElementById("bgB");
+  let activeBg = 0;
+
+  const textInput = document.getElementById("textInput");
 
   let slides = [ null ];
   let currentSlide = 0;
 
   try {
-    const savedText = window.localStorage.getItem(STORAGE_KEY_TEXT);
-    if (savedText !== null) {
-      textInput.textContent = savedText;
-    }
-    const savedFont = window.localStorage.getItem(STORAGE_KEY_FONT);
+    const savedText = localStorage.getItem(STORAGE_KEY_TEXT);
+    if (savedText !== null) textInput.textContent = savedText;
+    const savedFont = localStorage.getItem(STORAGE_KEY_FONT);
     if (savedFont !== null) {
       const n = parseInt(savedFont, 10);
       if (!isNaN(n)) baseFontSize = n;
     }
-    const savedSlide = window.localStorage.getItem(STORAGE_KEY_SLIDE);
+    const savedSlide = localStorage.getItem(STORAGE_KEY_SLIDE);
     if (savedSlide !== null) {
       const s = parseInt(savedSlide, 10);
       if (!isNaN(s)) currentSlide = s;
     }
-  } catch (e) {}
+  } catch(e) {}
 
   function applyBaseFont() {
     textInput.style.fontSize = baseFontSize + "px";
   }
 
-  function applySlide() {
-    if (slides.length === 0) {
-      document.body.style.background = "#000";
-      document.body.style.backgroundSize = "cover";
-      document.body.style.backgroundPosition = "center center";
-      document.body.style.backgroundRepeat = "no-repeat";
-      return;
+  function setLayer(el, src) {
+    if (!src) {
+      el.style.backgroundImage = "none";
+    } else {
+      el.style.backgroundImage = "url('" + src + "')";
     }
+  }
 
+  function applySlide(fadeMs = 300) {
+    if (slides.length === 0) return;
     if (currentSlide < 0) currentSlide = 0;
     if (currentSlide >= slides.length) currentSlide = slides.length - 1;
 
-    const img = slides[currentSlide];
+    const nextSrc = slides[currentSlide];
+    const nextEl = activeBg === 0 ? bgB : bgA;
+    const curEl  = activeBg === 0 ? bgA : bgB;
 
-    if (!img) {
-      document.body.style.background = "#000";
-      document.body.style.backgroundSize = "cover";
-      document.body.style.backgroundPosition = "center center";
-      document.body.style.backgroundRepeat = "no-repeat";
-    } else {
-      document.body.style.background = "#000 url('" + img + "') center center / cover no-repeat";
-    }
+    setLayer(nextEl, nextSrc);
+    nextEl.style.transitionDuration = fadeMs + "ms";
+    curEl.style.transitionDuration = fadeMs + "ms";
 
-    persist();
+    nextEl.style.opacity = nextSrc ? "1" : "0";
+    curEl.style.opacity = "0";
+
+    activeBg = activeBg === 0 ? 1 : 0;
+
+    try { localStorage.setItem(STORAGE_KEY_SLIDE, String(currentSlide)); } catch(e) {}
   }
 
   function persist() {
     try {
-      window.localStorage.setItem(STORAGE_KEY_TEXT, textInput.textContent);
-      window.localStorage.setItem(STORAGE_KEY_FONT, String(baseFontSize));
-      window.localStorage.setItem(STORAGE_KEY_SLIDE, String(currentSlide));
-    } catch (e) {}
+      localStorage.setItem(STORAGE_KEY_TEXT, textInput.textContent);
+      localStorage.setItem(STORAGE_KEY_FONT, String(baseFontSize));
+    } catch(e) {}
   }
-
-  // function fitToScreen() {
-  //   textWrapper.style.transform = "scale(1)";
-  //   const rect = textWrapper.getBoundingClientRect();
-  //   const vw = window.innerWidth;
-  //   const vh = window.innerHeight;
-  //   const scaleX = vw / rect.width;
-  //   const scaleY = vh / rect.height;
-  //   const scale = Math.min(1, scaleX, scaleY);
-  //   textWrapper.style.transform = "scale(" + scale + ")";
-  // }
 
   function clearAll() {
     textInput.textContent = "";
     persist();
-    // requestAnimationFrame(fitToScreen);
   }
 
-  function enforceWidthLimit() {
-    const rect = textWrapper.getBoundingClientRect();
-    const vw = window.innerWidth;
-    if (rect.width >= vw) {
-      clearAll();
-    }
-  }
+  function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-  function handleChange() {
-    if (textInput.textContent.indexOf("\n") !== -1) {
-      textInput.textContent = textInput.textContent.replace(/[\r\n]+/g, " ");
-    }
-    enforceWidthLimit();
+  function changeFont(delta) {
+    baseFontSize = clamp(baseFontSize + delta, MIN_FONT, MAX_FONT);
+    applyBaseFont();
     persist();
-    // requestAnimationFrame(fitToScreen);
+  }
+
+  function lineCount() {
+    const cs = getComputedStyle(textInput);
+    let lh = parseFloat(cs.lineHeight);
+    if (!lh || isNaN(lh)) lh = parseFloat(cs.fontSize) * 1.15;
+    const h = textInput.scrollHeight;
+    return Math.floor((h + 0.1) / lh);
+  }
+
+  function enforceTwoLines() {
+    if (lineCount() > 2) clearAll();
   }
 
   function insertTextAtCursor(text) {
     document.execCommand("insertText", false, text);
   }
 
-  function changeFont(delta) {
-    baseFontSize = clamp(baseFontSize + delta, MIN_FONT, MAX_FONT);
-    applyBaseFont();
-    persist();
-    // requestAnimationFrame(fitToScreen);
-  }
-
-  function clamp(v, lo, hi) {
-    return v < lo ? lo : (v > hi ? hi : v);
-  }
-
   function nextSlide() {
     if (slides.length === 0) return;
     if (currentSlide < slides.length - 1) {
-      currentSlide = currentSlide + 1;
+      currentSlide += 1;
       applySlide();
     }
   }
@@ -246,7 +232,7 @@
   function prevSlide() {
     if (slides.length === 0) return;
     if (currentSlide > 0) {
-      currentSlide = currentSlide - 1;
+      currentSlide -= 1;
       applySlide();
     }
   }
@@ -256,7 +242,7 @@
       const img = new Image();
       img.onload = function() { resolve(true); };
       img.onerror = function() { resolve(false); };
-      img.src = src + "?cachebust=" + Date.now();
+      img.src = src + "?cb=" + Date.now();
     });
   }
 
@@ -265,97 +251,48 @@
     let consecutiveMisses = 0;
     const MAX_CONSECUTIVE_MISSES = 10;
     const MAX_INDEX = 200;
-
     for (let i = 1; i <= MAX_INDEX; i++) {
       const name = i + ".jpg";
-      const okJpg = await probeImageExists(name);
-      if (okJpg) {
-        found.push(name);
-        consecutiveMisses = 0;
-      } else {
-        consecutiveMisses++;
-      }
-      if (consecutiveMisses >= MAX_CONSECUTIVE_MISSES) {
-        break;
-      }
+      const ok = await probeImageExists(name);
+      if (ok) { found.push(name); consecutiveMisses = 0; } else { consecutiveMisses++; }
+      if (consecutiveMisses >= MAX_CONSECUTIVE_MISSES) break;
     }
-
     const seq = [];
-    for (let i = 0; i < found.length; i++) {
-      seq.push(null);
-      seq.push(found[i]);
-    }
+    for (let i = 0; i < found.length; i++) { seq.push(null); seq.push(found[i]); }
     seq.push(null);
-
-    if (seq.length === 0) {
-      seq.push(null);
-    }
-
+    if (seq.length === 0) seq.push(null);
     slides = seq;
-
-    if (currentSlide < 0 || currentSlide >= slides.length) {
-      currentSlide = 0;
-    }
-
-    applySlide();
+    if (currentSlide < 0 || currentSlide >= slides.length) currentSlide = 0;
+    applySlide(0);
   }
 
   textInput.addEventListener("keydown", function(e) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-    }
-
-    const isDeleteKey = (e.key === "Backspace" || e.key === "Delete");
+    if (e.key === "Enter") { e.preventDefault(); clearAll(); return; }
     const isMeta = (e.metaKey || e.ctrlKey);
-
-    if (isDeleteKey && isMeta) {
-      e.preventDefault();
-      clearAll();
-      return;
-    }
-
-    if (isMeta && (e.key === "ArrowRight" || e.key === "Right")) {
-      e.preventDefault();
-      nextSlide();
-      return;
-    }
-
-    if (isMeta && (e.key === "ArrowLeft" || e.key === "Left")) {
-      e.preventDefault();
-      prevSlide();
-      return;
-    }
+    if (isMeta && (e.key === "ArrowRight" || e.key === "Right")) { e.preventDefault(); nextSlide(); return; }
+    if (isMeta && (e.key === "ArrowLeft"  || e.key === "Left"))  { e.preventDefault(); prevSlide(); return; }
   });
 
   textInput.addEventListener("paste", function(e) {
     e.preventDefault();
     let text = (e.clipboardData || window.clipboardData).getData("text");
-    text = text.replace(/[\r\n]+/g, " ");
+    text = text.replace(/\r?\n/g, " ");
     insertTextAtCursor(text);
-    handleChange();
   });
 
-  textInput.addEventListener("input", handleChange);
-  textInput.addEventListener("keyup", handleChange);
-
-  document.getElementById("fontInc").addEventListener("click", function() {
-    changeFont(+10);
+  textInput.addEventListener("input", function() {
+    if (textInput.textContent.indexOf("\n") !== -1) {
+      textInput.textContent = textInput.textContent.replace(/[\r\n]+/g, " ");
+    }
+    enforceTwoLines();
+    persist();
   });
 
-  document.getElementById("fontDec").addEventListener("click", function() {
-    changeFont(-10);
-  });
-
-  document.getElementById("clearBtn").addEventListener("click", function() {
-    clearAll();
-  });
-
-  // window.addEventListener("resize", function() {
-  //   requestAnimationFrame(fitToScreen);
-  // });
+  document.getElementById("fontInc").addEventListener("click", function() { changeFont(+10); });
+  document.getElementById("fontDec").addEventListener("click", function() { changeFont(-10); });
+  document.getElementById("clearBtn").addEventListener("click", function() { clearAll(); });
 
   applyBaseFont();
-  // requestAnimationFrame(fitToScreen);
   textInput.focus();
   buildSlides();
 })();
